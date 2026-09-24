@@ -281,56 +281,22 @@ async function handleHomeSectionByName(name) {
 // ══════════════════════════════════════════════════════════════════
 
 async function fetchCategoryData(category) {
-  // Map route names to the backend API filter type
-  const typeMap = {
-    movie: "movie",
-    "tv-series": "tvSeries",
-    "animated-series": "anime",
-  };
-  const filterType = typeMap[category] || category;
-
+  const channelId = category === "movie" ? "1" : category === "tv-series" ? "2" : "0";
+  const payload = { page: 1, perPage: 60, keyword: "", sort: "ForYou", channelId, classify: "All", genre: category === "animated-series" ? "Animation" : "All", year: "All", country: "All" };
   const resp = await fetch(
-    `${H5_API}/wefeed-h5api-bff/subject/filter?type=${filterType}&page=1&perPage=60`,
-    {
-      headers: {
-        "User-Agent": UA,
-        accept: "application/json",
-      },
-    }
+    `${H5_API}/wefeed-h5api-bff/subject/filter`,
+    { method: "POST", headers: { "User-Agent": UA, "Accept": "application/json", "Content-Type": "application/json", "X-Request-Lang": "en" }, body: JSON.stringify(payload) }
   );
-
   if (!resp.ok) throw new Error(`Category API returned ${resp.status}`);
   const body = await resp.json();
-  const items = body?.data?.items || [];
-
-  const movies = items.map((s) => ({
-    name: s.title || s.name || "",
-    poster_url: s.cover?.url || null,
-    url: s.detailPath ? `${BASE_URL}/detail/${s.detailPath}` : null,
-    slug: s.detailPath || null,
-    badge: s.corner || null,
-    blurhash: s.cover?.blurHash || null,
-    year: s.releaseDate || null,
-    rating: s.imdbRatingValue || null,
-  }));
-
-  const sectionName =
-    category === "movie"
-      ? "All Movies"
-      : category === "tv-series"
-        ? "All TV Series"
-        : "All Animation";
-
-  return [
-    {
-      section: sectionName,
-      more_url: null,
-      count: movies.length,
-      movies,
-    },
-  ];
+  const items = body?.data?.items || body?.data?.subjectList || [];
+  const movies = items.map((item) => {
+    const s = item?.subject || item;
+    return { name: s?.title || s?.name || "", poster_url: s?.cover?.url || null, url: s?.detailPath ? `${BASE_URL}/detail/${s.detailPath}` : null, slug: s?.detailPath || null, badge: s?.corner || null, blurhash: s?.cover?.blurHash || null, year: s?.releaseDate || null, rating: s?.imdbRatingValue || null };
+  }).filter((m) => m.name);
+  const sectionName = category === "movie" ? "All Movies" : category === "tv-series" ? "All TV Series" : "All Animation";
+  return [{ section: sectionName, more_url: null, count: movies.length, movies }];
 }
-
 async function handleCategory(category) {
   const sections = await fetchCategoryData(category);
   return json({
