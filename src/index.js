@@ -38,44 +38,29 @@ function md5(str) {
 
 async function h5Headers(extra={}) {
   const ts=String(Date.now());
-  const headers={
-    "User-Agent": UA, "Accept":"application/json", "Content-Type":"application/json",
-    "X-Request-Lang":"en", "X-M-Version":"16.2.1", "X-Client-Token":ts+","+md5(ts.split("").reverse().join("")),
-    "X-Client-Type":"h5", "X-Client-Info":JSON.stringify({timezone:"Africa/Algiers",language:"en-US",platform:"web"}),
-    "Referer":"https://moviebox.ph/", ...extra
+  return {
+    "User-Agent": UA,
+    "Accept":"application/json",
+    "Content-Type":"application/json",
+    "X-Request-Lang":"en",
+    "X-M-Version":"16.2.1",
+    "X-Client-Token":ts+","+md5(ts.split("").reverse().join("")),
+    "X-Client-Type":"h5",
+    "X-Client-Info":JSON.stringify({timezone:"Africa/Algiers",language:"en-US",platform:"web"}),
+    "Referer":"https://moviebox.ph/",
+    ...extra
   };
-  if(!guestBearer || Date.now()-guestBearerAt>GUEST_TTL_MS){
-    try{
-      const boot=await fetch(H5_API+"/wefeed-h5api-bff/home?host=moviebox.ph",{headers});
-      const token=boot.headers.get("x-user") || boot.headers.get("X-User");
-      if(token){ guestBearer=token.startsWith("Bearer ")?token:"Bearer "+token; guestBearerAt=Date.now(); }
-    }catch{}
-  }
-  if(guestBearer) headers.Authorization=guestBearer;
-  return headers;
 }
 
 async function fetchUpstream(url, options = {}, label = "upstream") {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 12000);
   try {
-    const resp = await fetch(url, { ...options, signal: controller.signal });
+    const resp = await fetch(url, options);
     const text = await resp.text();
-    return {
-      ok: resp.ok,
-      status: resp.status,
-      headers: resp.headers,
-      text,
-      label,
-      url,
-    };
+    return { ok: resp.ok, status: resp.status, headers: resp.headers, text, label, url };
   } catch (err) {
-    const reason = err?.name === "AbortError" ? "upstream timeout" : (err?.message || "upstream fetch failed");
-    const e = new Error(reason);
-    e.upstream = { label, url, status: 0, detail: reason };
+    const e = new Error(err?.message || "upstream fetch failed");
+    e.upstream = { label, url, status: 0, detail: e.message };
     throw e;
-  } finally {
-    clearTimeout(timer);
   }
 }
 
@@ -134,6 +119,8 @@ export default {
     try {
       // ── Home ──────────────────────────────────────────────
       if (p === "/") return handleRoot();
+      if (p === "/debug/ping") return json({ ok: true, worker: "moviebox-api", version: "diagnostic-1" });
+      if (p === "/debug/upstream") return handleUpstreamDebug();
       if (p === "/home") return handleHome();
       if (p === "/home/sections") return handleHomeSections();
       if (p === "/home/banner") return handleHomeBanner();
@@ -201,6 +188,17 @@ export default {
     }
   },
 };
+
+async function handleUpstreamDebug() {
+  const url = `${H5_API}/wefeed-h5api-bff/home?host=moviebox.ph`;
+  const result = await fetchUpstream(url, { headers: await h5Headers() }, "home-debug");
+  return json({
+    ok: result.ok,
+    status: result.status,
+    content_type: result.headers.get("content-type"),
+    body_preview: result.text.slice(0, 1000)
+  }, result.ok ? 200 : 502);
+}
 
 // ══════════════════════════════════════════════════════════════════
 // GET /  — endpoint listing
