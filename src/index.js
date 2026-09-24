@@ -191,13 +191,14 @@ export default {
 
 async function handleUpstreamDebug() {
   const url = `${H5_API}/wefeed-h5api-bff/home?host=moviebox.ph`;
-  const result = await fetchUpstream(url, { headers: await h5Headers() }, "home-debug");
+  const resp = await fetch(url);
+  const text = await resp.text();
   return json({
-    ok: result.ok,
-    status: result.status,
-    content_type: result.headers.get("content-type"),
-    body_preview: result.text.slice(0, 1000)
-  }, result.ok ? 200 : 502);
+    ok: resp.ok,
+    status: resp.status,
+    content_type: resp.headers.get("content-type"),
+    body_preview: text.slice(0, 1000)
+  }, resp.ok ? 200 : 502);
 }
 
 // ══════════════════════════════════════════════════════════════════
