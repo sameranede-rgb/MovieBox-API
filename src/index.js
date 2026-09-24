@@ -11,6 +11,50 @@ const H5_API = "https://h5-api.aoneroom.com";
 const DEFAULT_DOMAIN = "https://123movienow.cc";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
+
+// ── MovieBox guest-session headers ─────────────────────────────
+let guestBearer = null;
+let guestBearerAt = 0;
+const GUEST_TTL_MS = 10 * 60 * 1000;
+
+function md5(str) {
+  function cmn(q,a,b,x,s,t){a=(a+q+x+t)|0;return ((a<<s)|(a>>>(32-s)))+b|0}
+  function ff(a,b,c,d,x,s,t){return cmn((b&c)|((~b)&d),a,b,x,s,t)}
+  function gg(a,b,c,d,x,s,t){return cmn((b&d)|(c&(~d)),a,b,x,s,t)}
+  function hh(a,b,c,d,x,s,t){return cmn(b^c^d,a,b,x,s,t)}
+  function ii(a,b,c,d,x,s,t){return cmn(c^(b|(~d)),a,b,x,s,t)}
+  const bytes=new TextEncoder().encode(str); const len=bytes.length; const n=(((len+8)>>6)+1)*16; const x=new Int32Array(n);
+  for(let i=0;i<len;i++) x[i>>2]|=bytes[i]<<((i&3)*8); x[len>>2]|=0x80<<((len&3)*8); x[n-2]=len*8;
+  let a=0x67452301,b=0xefcdab89,c=0x98badcfe,d=0x10325476;
+  for(let i=0;i<n;i+=16){let A=a,B=b,C=c,D=d;
+    A=ff(A,B,C,D,x[i],7,-680876936);D=ff(D,A,B,C,x[i+1],12,-389564586);C=ff(C,D,A,B,x[i+2],17,606105819);B=ff(B,C,D,A,x[i+3],22,-1044525330);A=ff(A,B,C,D,x[i+4],7,-176418897);D=ff(D,A,B,C,x[i+5],12,1200080426);C=ff(C,D,A,B,x[i+6],17,-1473231341);B=ff(B,C,D,A,x[i+7],22,-45705983);A=ff(A,B,C,D,x[i+8],7,1770035416);D=ff(D,A,B,C,x[i+9],12,-1958414417);C=ff(C,D,A,B,x[i+10],17,-42063);B=ff(B,C,D,A,x[i+11],22,-1990404162);A=ff(A,B,C,D,x[i+12],7,1804603682);D=ff(D,A,B,C,x[i+13],12,-40341101);C=ff(C,D,A,B,x[i+14],17,-1502002290);B=ff(B,C,D,A,x[i+15],22,1236535329);
+    A=gg(A,B,C,D,x[i+1],5,-165796510);D=gg(D,A,B,C,x[i+6],9,-1069501632);C=gg(C,D,A,B,x[i+11],14,643717713);B=gg(B,C,D,A,x[i],20,-373897302);A=gg(A,B,C,D,x[i+5],5,-701558691);D=gg(D,A,B,C,x[i+10],9,38016083);C=gg(C,D,A,B,x[i+15],14,-660478335);B=gg(B,C,D,A,x[i+4],20,-405537848);A=gg(A,B,C,D,x[i+9],5,568446438);D=gg(D,A,B,C,x[i+14],9,-1019803690);C=gg(C,D,A,B,x[i+3],14,-187363961);B=gg(B,C,D,A,x[i+8],20,1163531501);A=gg(A,B,C,D,x[i+13],5,-1444681467);D=gg(D,A,B,C,x[i+2],9,-51403784);C=gg(C,D,A,B,x[i+7],14,1735328473);B=gg(B,C,D,A,x[i+12],20,-1926607734);
+    A=hh(A,B,C,D,x[i+5],4,-378558);D=hh(D,A,B,C,x[i+8],11,-2022574463);C=hh(C,D,A,B,x[i+11],16,1839030562);B=hh(B,C,D,A,x[i+14],23,-35309556);A=hh(A,B,C,D,x[i+1],4,-1530992060);D=hh(D,A,B,C,x[i+4],11,1272893353);C=hh(C,D,A,B,x[i+7],16,-155497632);B=hh(B,C,D,A,x[i+10],23,-1094730640);A=hh(A,B,C,D,x[i+13],4,681279174);D=hh(D,A,B,C,x[i],11,-358537222);C=hh(C,D,A,B,x[i+3],16,-722521979);B=hh(B,C,D,A,x[i+6],23,76029189);A=hh(A,B,C,D,x[i+9],4,-640364487);D=hh(D,A,B,C,x[i+12],11,-421815835);C=hh(C,D,A,B,x[i+15],16,530742520);B=hh(B,C,D,A,x[i+2],23,-995338651);
+    A=ii(A,B,C,D,x[i],6,-198630844);D=ii(D,A,B,C,x[i+7],10,1126891415);C=ii(C,D,A,B,x[i+14],15,-1416354905);B=ii(B,C,D,A,x[i+5],21,-57434055);A=ii(A,B,C,D,x[i+12],6,1700485571);D=ii(D,A,B,C,x[i+3],10,-1894986606);C=ii(C,D,A,B,x[i+10],15,-1051523);B=ii(B,C,D,A,x[i+1],21,-2054922799);A=ii(A,B,C,D,x[i+8],6,1873313359);D=ii(D,A,B,C,x[i+15],10,-30611744);C=ii(C,D,A,B,x[i+6],15,-1560198380);B=ii(B,C,D,A,x[i+13],21,1309151649);A=ii(A,B,C,D,x[i+4],6,-145523070);D=ii(D,A,B,C,x[i+11],10,-1120210379);C=ii(C,D,A,B,x[i+2],15,718787259);B=ii(B,C,D,A,x[i+9],21,-343485551);
+    a=(a+A)|0;b=(b+B)|0;c=(c+C)|0;d=(d+D)|0;
+  }
+  return [a,b,c,d].map(v=>[0,8,16,24].map(s=>((v>>>s)&255).toString(16).padStart(2,"0")).join("")).join("");
+}
+
+async function h5Headers(extra={}) {
+  const ts=String(Date.now());
+  const headers={
+    "User-Agent": UA, "Accept":"application/json", "Content-Type":"application/json",
+    "X-Request-Lang":"en", "X-M-Version":"16.2.1", "X-Client-Token":ts+","+md5(ts.split("").reverse().join("")),
+    "X-Client-Type":"h5", "X-Client-Info":JSON.stringify({timezone:"Africa/Algiers",language:"en-US",platform:"web"}),
+    "Referer":"https://moviebox.ph/", ...extra
+  };
+  if(!guestBearer || Date.now()-guestBearerAt>GUEST_TTL_MS){
+    try{
+      const boot=await fetch(H5_API+"/wefeed-h5api-bff/home?host=moviebox.ph",{headers});
+      const token=boot.headers.get("x-user") || boot.headers.get("X-User");
+      if(token){ guestBearer=token.startsWith("Bearer ")?token:"Bearer "+token; guestBearerAt=Date.now(); }
+    }catch{}
+  }
+  if(guestBearer) headers.Authorization=guestBearer;
+  return headers;
+}
+
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
@@ -163,7 +207,7 @@ function handleRoot() {
 async function fetchHomeData() {
   const resp = await fetch(
     `${H5_API}/wefeed-h5api-bff/home?host=moviebox.ph`,
-    { headers: { "User-Agent": UA } }
+    { headers: await h5Headers() }
   );
   if (!resp.ok) throw new Error(`Home API returned ${resp.status}`);
   const body = await resp.json();
@@ -343,7 +387,7 @@ async function handleCategorySectionByName(category, name) {
 async function fetchRankingData() {
   const resp = await fetch(
     `${H5_API}/wefeed-h5api-bff/subject/rank-list`,
-    { headers: { "User-Agent": UA, accept: "application/json" } }
+    { headers: await h5Headers({accept:"application/json"}) }
   );
   if (!resp.ok) throw new Error(`Ranking API returned ${resp.status}`);
   const body = await resp.json();
@@ -422,7 +466,7 @@ async function handleSearchSuggest(params) {
     `${H5_API}/wefeed-h5api-bff/subject/search-suggest`,
     {
       method: "POST",
-      headers: { "User-Agent": UA, "Content-Type": "application/json" },
+      headers: await h5Headers(),
       body: JSON.stringify({ keyword: q, perPage: 10 }),
     }
   );
@@ -632,7 +676,7 @@ async function discoverDomain() {
   try {
     const resp = await fetch(
       `${H5_API}/wefeed-h5api-bff/media-player/get-domain`,
-      { headers: { "User-Agent": UA, "X-Client-Type": "h5" } }
+      { headers: await h5Headers() }
     );
     if (resp.ok) {
       const d = await resp.json();
