@@ -329,7 +329,7 @@ async function fetchCategoryData(category) {
   const payload = { page: 1, perPage: 60, keyword: "", sort: "ForYou", channelId, classify: "All", genre: category === "animated-series" ? "Animation" : "All", year: "All", country: "All" };
   const resp = await fetch(
     `${H5_API}/wefeed-h5api-bff/subject/filter`,
-    { method: "POST", headers: { "User-Agent": UA, "Accept": "application/json", "Content-Type": "application/json", "X-Request-Lang": "en" }, body: JSON.stringify(payload) }
+    { method: "POST", headers: await h5Headers(), body: JSON.stringify(payload) }
   );
   if (!resp.ok) throw new Error(`Category API returned ${resp.status}`);
   const body = await resp.json();
@@ -470,7 +470,7 @@ async function handleSearchSuggest(params) {
       body: JSON.stringify({ keyword: q, perPage: 10 }),
     }
   );
-  if (!resp.ok) return json({ error: "Search API failed" }, 502);
+  if (!resp.ok) return json({ error: "Search API failed", upstream_status: resp.status }, 502);
   const body = await resp.json();
   const items = body?.data?.items || [];
   return json({
@@ -487,7 +487,7 @@ async function handleSearch(params) {
     `${H5_API}/wefeed-h5api-bff/subject/search`,
     {
       method: "POST",
-      headers: { "User-Agent": UA, "Content-Type": "application/json" },
+      headers: await h5Headers(),
       body: JSON.stringify({ keyword: q, perPage: 30, page: 1 }),
     }
   );
