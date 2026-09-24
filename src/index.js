@@ -55,6 +55,61 @@ async function h5Headers(extra={}) {
   return headers;
 }
 
+async function fetchUpstream(url, options = {}, label = "upstream") {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12000);
+  try {
+    const resp = await fetch(url, { ...options, signal: controller.signal });
+    const text = await resp.text();
+    return {
+      ok: resp.ok,
+      status: resp.status,
+      headers: resp.headers,
+      text,
+      label,
+      url,
+    };
+  } catch (err) {
+    const reason = err?.name === "AbortError" ? "upstream timeout" : (err?.message || "upstream fetch failed");
+    const e = new Error(reason);
+    e.upstream = { label, url, status: 0, detail: reason };
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function parseUpstreamJson(result) {
+  if (!result.text) {
+    const e = new Error(`${result.label} returned an empty body`);
+    e.upstream = { label: result.label, url: result.url, status: result.status, body: "" };
+    throw e;
+  }
+  try {
+    return JSON.parse(result.text);
+  } catch {
+    const e = new Error(`${result.label} returned non-JSON`);
+    e.upstream = {
+      label: result.label,
+      url: result.url,
+      status: result.status,
+      body: result.text.slice(0, 500),
+    };
+    throw e;
+  }
+}
+
+function upstreamError(result, fallback = "Upstream API failed") {
+  const e = new Error(`${fallback} (${result.status})`);
+  e.upstream = {
+    label: result.label,
+    url: result.url,
+    status: result.status,
+    body: result.text.slice(0, 500),
+  };
+  return e;
+}
+
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
@@ -139,7 +194,10 @@ export default {
 
       return json({ error: "Not found" }, 404);
     } catch (err) {
-      return json({ error: err.message || "Internal error" }, 500);
+      return json({
+        error: err?.message || "Internal error",
+        upstream: err?.upstream || null,
+      }, err?.upstream?.status >= 400 && err.upstream.status < 600 ? 502 : 500);
     }
   },
 };
@@ -205,12 +263,13 @@ function handleRoot() {
 // ══════════════════════════════════════════════════════════════════
 
 async function fetchHomeData() {
-  const resp = await fetch(
+  const result = await fetchUpstream(
     `${H5_API}/wefeed-h5api-bff/home?host=moviebox.ph`,
-    { headers: await h5Headers() }
+    { headers: await h5Headers() },
+    "home"
   );
-  if (!resp.ok) throw new Error(`Home API returned ${resp.status}`);
-  const body = await resp.json();
+  if (!result.ok) throw upstreamError(result, "Home API failed");
+  const body = parseUpstreamJson(result);
   const ops = body?.data?.operatingList || [];
 
   const sections = [];
@@ -327,12 +386,13 @@ async function handleHomeSectionByName(name) {
 async function fetchCategoryData(category) {
   const channelId = category === "movie" ? "1" : category === "tv-series" ? "2" : "0";
   const payload = { page: 1, perPage: 60, keyword: "", sort: "ForYou", channelId, classify: "All", genre: category === "animated-series" ? "Animation" : "All", year: "All", country: "All" };
-  const resp = await fetch(
+  const result = await fetchUpstream(
     `${H5_API}/wefeed-h5api-bff/subject/filter`,
-    { method: "POST", headers: await h5Headers(), body: JSON.stringify(payload) }
+    { method: "POST", headers: await h5Headers(), body: JSON.stringify(payload) },
+    `category:${category}`
   );
-  if (!resp.ok) throw new Error(`Category API returned ${resp.status}`);
-  const body = await resp.json();
+  if (!result.ok) throw upstreamError(result, "Category API failed");
+  const body = parseUpstreamJson(result);
   const items = body?.data?.items || body?.data?.subjectList || [];
   const movies = items.map((item) => {
     const s = item?.subject || item;
@@ -385,12 +445,13 @@ async function handleCategorySectionByName(category, name) {
 // ══════════════════════════════════════════════════════════════════
 
 async function fetchRankingData() {
-  const resp = await fetch(
+  const result = await fetchUpstream(
     `${H5_API}/wefeed-h5api-bff/subject/rank-list`,
-    { headers: await h5Headers({accept:"application/json"}) }
+    { headers: await h5Headers({accept:"application/json"}) },
+    "ranking"
   );
-  if (!resp.ok) throw new Error(`Ranking API returned ${resp.status}`);
-  const body = await resp.json();
+  if (!result.ok) throw upstreamError(result, "Ranking API failed");
+  const body = parseUpstreamJson(result);
   const lists = body?.data || [];
 
   const sections = [];
@@ -462,16 +523,17 @@ async function handleSearchSuggest(params) {
   const q = params.get("q");
   if (!q) return json({ error: "q parameter required" }, 400);
 
-  const resp = await fetch(
+  const result = await fetchUpstream(
     `${H5_API}/wefeed-h5api-bff/subject/search-suggest`,
     {
       method: "POST",
       headers: await h5Headers(),
       body: JSON.stringify({ keyword: q, perPage: 10 }),
-    }
+    },
+    "search-suggest"
   );
-  if (!resp.ok) return json({ error: "Search API failed", upstream_status: resp.status }, 502);
-  const body = await resp.json();
+  if (!result.ok) throw upstreamError(result, "Search suggest API failed");
+  const body = parseUpstreamJson(result);
   const items = body?.data?.items || [];
   return json({
     query: q,
@@ -483,16 +545,17 @@ async function handleSearch(params) {
   const q = params.get("q");
   if (!q) return json({ error: "q parameter required" }, 400);
 
-  const resp = await fetch(
+  const result = await fetchUpstream(
     `${H5_API}/wefeed-h5api-bff/subject/search`,
     {
       method: "POST",
       headers: await h5Headers(),
       body: JSON.stringify({ keyword: q, perPage: 30, page: 1 }),
-    }
+    },
+    "search"
   );
-  if (!resp.ok) return json({ error: "Search API failed" }, 502);
-  const body = await resp.json();
+  if (!result.ok) throw upstreamError(result, "Search API failed");
+  const body = parseUpstreamJson(result);
   const items = body?.data?.items || [];
 
   const movies = items.map((s) => ({
@@ -674,12 +737,13 @@ async function handleEpisodes(slug) {
 
 async function discoverDomain() {
   try {
-    const resp = await fetch(
+    const result = await fetchUpstream(
       `${H5_API}/wefeed-h5api-bff/media-player/get-domain`,
-      { headers: await h5Headers() }
+      { headers: await h5Headers() },
+      "media-player/get-domain"
     );
-    if (resp.ok) {
-      const d = await resp.json();
+    if (result.ok) {
+      const d = parseUpstreamJson(result);
       return (d.data || DEFAULT_DOMAIN).replace(/\/+$/, "");
     }
   } catch {}
@@ -688,7 +752,7 @@ async function discoverDomain() {
 
 async function fetchStreams(domain, subjectId, detailPath, se, ep) {
   const playUrl = `${domain}/wefeed-h5api-bff/subject/play?subjectId=${subjectId}&se=${se}&ep=${ep}&detailPath=${detailPath}`;
-  const resp = await fetch(playUrl, {
+  const result = await fetchUpstream(playUrl, {
     headers: {
       accept: "application/json",
       referer: `${domain}/spa/videoPlayPage/movies/${detailPath}`,
@@ -696,9 +760,9 @@ async function fetchStreams(domain, subjectId, detailPath, se, ep) {
       cookie: "uuid=d8c3539e-2e46-4000-af20-7046a856e30a",
       "User-Agent": UA,
     },
-  });
-  if (!resp.ok) throw new Error(`Play API returned ${resp.status}`);
-  const body = await resp.json();
+  }, "subject/play");
+  if (!result.ok) throw upstreamError(result, "Play API failed");
+  const body = parseUpstreamJson(result);
   return body?.data?.streams || [];
 }
 
